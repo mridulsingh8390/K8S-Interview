@@ -18,6 +18,7 @@ Each folder covers one topic in the same format:
 | 04 | [ReplicaSet](04-ReplicaSet/) | Reconciliation, selectors, `FailedCreate` |
 | 05 | [DaemonSet](05-DaemonSet/) | Per-node agents, tolerations, `OnDelete` |
 | 06 | [StatefulSet](06-StatefullSet/) | Stable identity, `volumeClaimTemplates`, partition, AZ issues |
+| 06b | [DB backup and restore](06-StatefullSet/DB-Backup-Restore.md) | DB crash/corruption scenarios, snapshots, pg_dump, PITR (CloudNativePG, WAL-G, binlogs), Velero, recovery runbook |
 | 07 | [Service: NodePort](07-Serivce-NodePort/) | Ports, `externalTrafficPolicy`, firewalling |
 | 08 | [Service: ClusterIP](08-Service-ClusterIP/) | Virtual IPs, EndpointSlices, kube-proxy, debug order |
 | 09 | [Service: Headless](09-Service-HeadLess/) | Per-Pod DNS, StatefulSets, gRPC load balancing |

@@ -168,6 +168,32 @@ kubectl get volumeattachments | grep <pv-name>
 kubectl patch pvc data-mysql-0 -n db -p '{"spec":{"resources":{"requests":{"storage":"50Gi"}}}}'
 ```
 
+## Database crash, corruption, backup and restore
+
+> **Full guide with YAML and commands: [DB-Backup-Restore.md](DB-Backup-Restore.md).** It covers failure scenarios, backup options compared, the recommended production setup, `pg_dump`/`mysqldump` CronJobs, CSI VolumeSnapshots (schedule, restore to a new PVC, swap into the StatefulSet), PITR with CloudNativePG, WAL-G and MySQL binlogs, Velero and cloud backup, a corruption runbook, and backup/restore troubleshooting.
+
+A StatefulSet **restarts the Pod and reattaches the same PVC**. It **cannot repair corrupted data**, and it **does not replicate or back up** anything.
+
+| Failure | Kubernetes does | You must |
+| --- | --- | --- |
+| DB process crash / OOM | Restarts the container | Find the cause; the DB replays its WAL on start |
+| Pod deleted / node lost | Recreates `mysql-0`, reattaches its PVC | Usually nothing |
+| Disk full | Crash-loops | Expand the PVC; check WAL archiving |
+| Data files corrupted | Keeps restarting; can't fix the data | Snapshot the PVC → fail over to a replica, or restore |
+| PVC deleted (`reclaimPolicy: Delete`) | Disk is deleted too | Restore from a backup or snapshot |
+| Bad `DELETE` / migration | Nothing; replicas copy the mistake | **PITR** to just before it, into a new instance |
+| Region lost | — | Restore from cross-region backups |
+
+**Best way:**
+- **Option 1:** a managed DB (RDS / Azure Database), which has PITR built in.
+- **Option 2**, if the DB must run on Kubernetes:
+  - an **operator** (CloudNativePG / Percona) with replicas across AZs;
+  - **continuous WAL/binlog archiving and daily base backups** to S3/Blob (immutable and cross-region), for PITR;
+  - **hourly VolumeSnapshots** for fast restore;
+  - **weekly logical dumps**;
+  - PV/PVC **`Retain`**;
+  - **monthly restore drills**.
+
 ## Interview questions
 
 <details>
@@ -208,6 +234,26 @@ You can, with operators (CloudNativePG, Percona, Strimzi for Kafka) that handle 
 Many teams prefer managed databases (RDS, Azure Database), which offload operations. The trade-off is operational burden versus portability and cost.
 </details>
 
+<details>
+<summary><b>The database in a StatefulSet is corrupted. What does Kubernetes do, and what do you do?</b></summary>
+
+Kubernetes restarts the Pod and reattaches the **same** PVC, so the corruption comes back and the Pod may crash-loop. Kubernetes can't repair data.
+
+You:
+1. Diagnose; check for a full disk or OOM first.
+2. Stop writes, and **snapshot the bad PVC** before touching it.
+3. Fail over to a healthy replica, or restore (a snapshot, or a base backup plus WAL), or run **PITR** for logical mistakes, into a **new** instance.
+4. Validate, then cut over.
+
+See [DB-Backup-Restore.md](DB-Backup-Restore.md#9-runbook-the-database-is-crashing-or-corrupted).
+</details>
+
+<details>
+<summary><b>Is a StatefulSet with 3 replicas highly available?</b></summary>
+
+Not by itself. Without database replication and failover, it is three independent databases. HA comes from the database layer: streaming replication plus a failover manager such as an operator or Patroni. And replication is not a backup, because it copies mistakes too.
+</details>
+
 ## Quick revision
 
 | Topic | Remember |
@@ -218,3 +264,6 @@ Many teams prefer managed databases (RDS, Azure Database), which offload operati
 | Staged rollout | `partition` |
 | AZ issues | `WaitForFirstConsumer` StorageClass |
 | Node death | No duplicate identity until the old Pod is confirmed gone |
+| Corruption | StatefulSet can't fix data → snapshot, failover, restore or PITR |
+| HA / backup | Neither is built in: replication + WAL/binlog archiving + snapshots |
+| Restore | Into a new PVC/instance first; swap needs the same PVC name |
